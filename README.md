@@ -1,14 +1,10 @@
-# Projet de test Docker API
+# Creation des fichiers du projet
 
-Ce projet est un exemple simple avec trois parties :
+Ce README montre uniquement les etapes utilisees pour creer la structure du projet ainsi que les fichiers du backend et du frontend.
 
-- un frontend statique servi par Nginx ;
-- un backend Node.js avec Express ;
-- une base de données MySQL.
+Il ne detaille pas ici toutes les commandes Docker de lancement des conteneurs.
 
-Le frontend envoie un formulaire au backend, puis le backend enregistre les données dans MySQL.
-
-## Structure du projet
+## Structure finale
 
 ```text
 test-docker-api/
@@ -20,138 +16,265 @@ test-docker-api/
     `-- index.html
 ```
 
-## Prérequis
+## 1. Creer les dossiers du projet
 
-Avant de commencer, il faut avoir :
+Vous pouvez creer le projet manuellement ou avec des commandes.
 
-- Docker Desktop installé et démarré ;
-- PowerShell ouvert dans le dossier racine du projet ;
-- le dossier du projet positionné sur `test-docker-api`.
+Exemple en ligne de commande :
 
-## Étapes de création du projet
-
-### 1. Créer le réseau Docker
-
-```powershell
-docker network create app-network
+```bash
+mkdir test-docker-api
+cd test-docker-api
+mkdir backend
+mkdir frontend
 ```
 
-Ce réseau permet aux conteneurs `frontend`, `backend` et `database` de communiquer entre eux.
+## 2. Creer les fichiers du backend
 
-### 2. Créer le volume Docker pour MySQL
+### `backend/Dockerfile`
 
-```powershell
-docker volume create mysql_api_data
+Creez le fichier `backend/Dockerfile` puis ajoutez :
+
+```dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json .
+RUN npm install
+
+COPY server.js .
+
+EXPOSE 5000
+
+CMD ["npm", "start"]
 ```
 
-Ce volume permet de conserver les données MySQL même si le conteneur est supprimé.
+### `backend/package.json`
 
-### 3. Télécharger l'image MySQL
+Creez le fichier `backend/package.json` puis ajoutez :
 
-```powershell
-docker pull mysql:8.0
+```json
+{
+  "name": "backend-api",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "mysql2": "^3.14.1"
+  }
+}
 ```
 
-### 4. Lancer le conteneur de base de données
+### `backend/server.js`
 
-```powershell
-docker run -d --name database-container --network app-network -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=formulaire_db -v mysql_api_data:/var/lib/mysql -p 3308:3306 mysql:8.0
+Creez le fichier `backend/server.js` puis ajoutez :
+
+```js
+const express = require("express");
+const cors = require("cors");
+const mysql = require("mysql2");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const db = mysql.createConnection({
+  host: "database-container",
+  user: "root",
+  password: "root123",
+  database: "formulaire_db"
+});
+
+function connectWithRetry() {
+  db.connect((err) => {
+    if (err) {
+      console.log("MySQL not ready, retrying in 5 seconds...");
+      setTimeout(connectWithRetry, 5000);
+      return;
+    }
+
+    console.log("Connected to MySQL");
+
+    const sql = `
+      CREATE TABLE IF NOT EXISTS contacts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nom VARCHAR(100) NOT NULL,
+        email VARCHAR(150) NOT NULL
+      )
+    `;
+
+    db.query(sql, (err) => {
+      if (err) {
+        console.error("Table creation error:", err.message);
+      } else {
+        console.log("Table contacts ready");
+      }
+    });
+  });
+}
+
+connectWithRetry();
+
+app.get("/", (req, res) => {
+  res.send("API is running");
+});
+
+app.get("/contacts", (req, res) => {
+  db.query("SELECT * FROM contacts ORDER BY id DESC", (err, results) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json(results);
+  });
+});
+
+app.post("/contacts", (req, res) => {
+  const { nom, email } = req.body;
+
+  if (!nom || !email) {
+    return res.status(400).json({ message: "nom and email are required" });
+  }
+
+  const sql = "INSERT INTO contacts (nom, email) VALUES (?, ?)";
+  db.query(sql, [nom, email], (err, result) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.status(201).json({
+      message: "Contact added successfully",
+      id: result.insertId
+    });
+  });
+});
+
+app.listen(5000, () => {
+  console.log("Backend running on port 5000");
+});
 ```
 
-Explication :
+Point important :
 
-- `database-container` est le nom du conteneur MySQL ;
-- `app-network` est le réseau partagé ;
-- `MYSQL_ROOT_PASSWORD=root123` définit le mot de passe root ;
-- `MYSQL_DATABASE=formulaire_db` crée la base de données au démarrage ;
-- `mysql_api_data:/var/lib/mysql` monte le volume de persistance ;
-- `3308:3306` expose MySQL sur le port `3308` côté machine locale.
-
-### 5. Construire l'image du backend
-
-Depuis la racine du projet :
-
-```powershell
-docker build -t backend-api ./backend
+```js
+host: "database-container"
 ```
 
-Cette commande utilise le `Dockerfile` présent dans le dossier `backend/`.
+Cette valeur correspond au nom du conteneur MySQL utilise plus tard dans le reseau Docker.
 
-### 6. Lancer le conteneur du backend
+## 3. Creer le fichier du frontend
 
-```powershell
-docker run -d --name backend-container --network app-network -p 5000:5000 backend-api
+### `frontend/index.html`
+
+Creez le fichier `frontend/index.html` puis ajoutez :
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Formulaire API</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    form {
+      margin-bottom: 20px;
+    }
+    input, button {
+      display: block;
+      margin: 10px 0;
+      padding: 10px;
+      width: 100%;
+    }
+    li {
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Formulaire</h1>
+
+  <form id="contactForm">
+    <input type="text" id="nom" placeholder="Nom" required />
+    <input type="email" id="email" placeholder="Email" required />
+    <button type="submit">Envoyer</button>
+  </form>
+
+  <h2>Contacts enregistres</h2>
+  <ul id="contactList"></ul>
+
+  <script>
+    const form = document.getElementById("contactForm");
+    const list = document.getElementById("contactList");
+
+    async function loadContacts() {
+      const res = await fetch("http://localhost:5000/contacts");
+      const data = await res.json();
+
+      list.innerHTML = "";
+      data.forEach(contact => {
+        const li = document.createElement("li");
+        li.textContent = `${contact.nom} - ${contact.email}`;
+        list.appendChild(li);
+      });
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const nom = document.getElementById("nom").value;
+      const email = document.getElementById("email").value;
+
+      const res = await fetch("http://localhost:5000/contacts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ nom, email })
+      });
+
+      const data = await res.json();
+      alert(data.message || "Done");
+
+      form.reset();
+      loadContacts();
+    });
+
+    loadContacts();
+  </script>
+</body>
+</html>
 ```
 
-Le backend écoute sur le port `5000`.
+## 4. Logique entre frontend et backend
 
-Note importante :
-Au premier démarrage, MySQL peut mettre quelques secondes à devenir prêt. C'est normal si le backend affiche temporairement un message de reconnexion dans les logs.
+Le navigateur charge le frontend depuis `frontend/index.html`.
 
-### 7. Télécharger l'image Nginx
+Le JavaScript du frontend envoie ensuite les requetes vers :
 
-```powershell
-docker pull nginx:alpine
+```text
+http://localhost:5000/contacts
 ```
 
-### 8. Lancer le conteneur du frontend
+Cela permet d'envoyer les donnees du formulaire au backend.
 
-Depuis la racine du projet, sous PowerShell Windows :
+## Resume
 
-```powershell
-docker run -d --name frontend-container --network app-network -p 8080:80 -v "${PWD}\frontend:/usr/share/nginx/html:ro" nginx:alpine
-```
+Pour construire les fichiers du projet, il faut simplement :
 
-Explication :
+1. creer le dossier `backend/` ;
+2. creer le dossier `frontend/` ;
+3. ajouter `backend/Dockerfile` ;
+4. ajouter `backend/package.json` ;
+5. ajouter `backend/server.js` ;
+6. ajouter `frontend/index.html`.
 
-- le frontend statique est monté dans `/usr/share/nginx/html` ;
-- `:ro` signifie lecture seule ;
-- `8080:80` publie le site sur `http://localhost:8080`.
-
-## Vérification
-
-Après le lancement des trois conteneurs :
-
-- frontend : `http://localhost:8080`
-- backend : `http://localhost:5000`
-- base de données locale : port `3308`
-
-Quand vous ouvrez le frontend dans le navigateur :
-
-- vous pouvez envoyer un nom et un email ;
-- le backend reçoit la requête ;
-- le backend enregistre les données dans MySQL ;
-- la liste des contacts s'affiche ensuite dans la page.
-
-## Logs des conteneurs
-
-### Logs du backend
-
-```powershell
-docker logs backend-container
-```
-
-### Logs de la base de données
-
-```powershell
-docker logs database-container
-```
-
-### Logs du frontend
-
-```powershell
-docker logs frontend-container
-```
-
-## Résumé
-
-L'ordre conseillé est le suivant :
-
-1. créer le réseau ;
-2. créer le volume ;
-3. lancer MySQL ;
-4. construire l'image du backend ;
-5. lancer le backend ;
-6. lancer le frontend.
-
-Avec cette procédure, le projet fonctionne comme une petite application complète : frontend + backend + base de données.
+Une fois ces fichiers crees, le projet est pret pour les etapes Docker de build et d'execution.
