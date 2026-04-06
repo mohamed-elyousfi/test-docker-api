@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Formulaire API</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    form {
+      margin-bottom: 20px;
+    }
+    input, button {
+      display: block;
+      margin: 10px 0;
+      padding: 10px;
+      width: 100%;
+    }
+    li {
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Formulaire</h1>
+
+  <form id="contactForm">
+    <input type="text" id="nom" placeholder="Nom" required />
+    <input type="email" id="email" placeholder="Email" required />
+    <button type="submit">Envoyer</button>
+  </form>
+
+  <h2>Contacts enregistrés</h2>
+  <ul id="contactList"></ul>
+
+  <script>
+    const form = document.getElementById("contactForm");
+    const list = document.getElementById("contactList");
+
+    async function loadContacts() {
+      const res = await fetch("http://localhost:5000/contacts");
+      const data = await res.json();
+
+      list.innerHTML = "";
+      data.forEach(contact => {
+        const li = document.createElement("li");
+        li.textContent = `${contact.nom} - ${contact.email}`;
+        list.appendChild(li);
+      });
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const nom = document.getElementById("nom").value;
+      const email = document.getElementById("email").value;
+
+      const res = await fetch("http://localhost:5000/contacts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ nom, email })
+      });
+
+      const data = await res.json();
+      alert(data.message || "Done");
+
+      form.reset();
+      loadContacts();
+    });
+
+    loadContacts();
+  </script>
+</body>
+</html>
